@@ -1,0 +1,7 @@
+[tool.nonebot]
+adapters = [{ name = "onebot.v11", module_name = "nonebot.adapters.onebot.v11" }]
+plugins = ["score"]
+plugin_dirs = ["plugins"]
+
+host = "127.0.0.1"
+port = 8080
