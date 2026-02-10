@@ -66,6 +66,17 @@ def set_field(group_id: int, user_id: int, field: str, value: int) -> None:
     conn.commit()
     conn.close()
 
+def add_field(group_id: int, user_id: int, field: str, delta: int) -> None:
+    if field not in {"pts", "libido", "rc", "yc"}:
+        raise ValueError("invalid field")
+    conn = get_conn()
+    cur = conn.cursor()
+    # 确保行存在
+    cur.execute("INSERT OR IGNORE INTO members (group_id, user_id) VALUES (?, ?)", (group_id, user_id))
+    cur.execute(f"UPDATE members SET {field} = COALESCE({field}, 0) + ? WHERE group_id = ? AND user_id = ?", (delta, group_id, user_id))
+    conn.commit()
+    conn.close()
+
 def get_member(group_id: int, user_id: int) -> Optional[sqlite3.Row]:
     conn = get_conn()
     cur = conn.cursor()
@@ -153,6 +164,11 @@ setpts = on_command("setpts", priority=5)
 setlibido = on_command("setlibido", priority=5)
 setrc = on_command("setrc", priority=5)
 setyc = on_command("setyc", priority=5)
+# 新增 add 命令
+addpts = on_command("addpts", priority=5)
+addlibido = on_command("addlibido", priority=5)
+addrc = on_command("addrc", priority=5)
+addyc = on_command("addyc", priority=5)
 showall = on_command("showall", priority=10)
 show = on_command("show", priority=10)
 refreshcards_cmd = on_command("refreshcards", priority=5)
@@ -243,6 +259,71 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     await refresh_cardname(bot, event.group_id)
     display = await get_display_name(bot, event.group_id, user_id)
     await setyc.finish(f"已将 {display} 的 YC 设置为 {val}")
+
+@addpts.handle()
+async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
+    user_id = extract_at_user(event) or event.user_id
+    text = args.extract_plain_text().strip()
+    delta = 1
+    if text:
+        try:
+            delta = int(text)
+        except Exception:
+            await addpts.finish("用法：#addpts @user [数量]（默认 1）")
+    add_field(event.group_id, user_id, "pts", delta)
+    recompute_ranks(event.group_id)
+    await refresh_cardname(bot, event.group_id)
+    r = get_member(event.group_id, user_id)
+    display = await get_display_name(bot, event.group_id, user_id)
+    await addpts.finish(f"已为 {display} 增加 Pts {delta}，当前 Pts={r['pts']} RANK={r['rank']}")
+
+@addlibido.handle()
+async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
+    user_id = extract_at_user(event) or event.user_id
+    text = args.extract_plain_text().strip()
+    delta = 1
+    if text:
+        try:
+            delta = int(text)
+        except Exception:
+            await addlibido.finish("用法：#addlibido @user [数量]（默认 1）")
+    add_field(event.group_id, user_id, "libido", delta)
+    await refresh_cardname(bot, event.group_id)
+    r = get_member(event.group_id, user_id)
+    display = await get_display_name(bot, event.group_id, user_id)
+    await addlibido.finish(f"已为 {display} 增加 Libido {delta}，当前 Libido={r['libido']}")
+
+@addrc.handle()
+async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
+    user_id = extract_at_user(event) or event.user_id
+    text = args.extract_plain_text().strip()
+    delta = 1
+    if text:
+        try:
+            delta = int(text)
+        except Exception:
+            await addrc.finish("用法：#addrc @user [数量]（默认 1）")
+    add_field(event.group_id, user_id, "rc", delta)
+    await refresh_cardname(bot, event.group_id)
+    r = get_member(event.group_id, user_id)
+    display = await get_display_name(bot, event.group_id, user_id)
+    await addrc.finish(f"已为 {display} 增加 RC {delta}，当前 RC={r['rc']}")
+
+@addyc.handle()
+async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
+    user_id = extract_at_user(event) or event.user_id
+    text = args.extract_plain_text().strip()
+    delta = 1
+    if text:
+        try:
+            delta = int(text)
+        except Exception:
+            await addyc.finish("用法：#addyc @user [数量]（默认 1）")
+    add_field(event.group_id, user_id, "yc", delta)
+    await refresh_cardname(bot, event.group_id)
+    r = get_member(event.group_id, user_id)
+    display = await get_display_name(bot, event.group_id, user_id)
+    await addyc.finish(f"已为 {display} 增加 YC {delta}，当前 YC={r['yc']}")
 
 @showall.handle()
 async def _(bot: Bot, event: GroupMessageEvent):
