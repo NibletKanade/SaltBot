@@ -1,0 +1,23 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.pyo
+
+# ===== 虚拟环境 =====
+.env/
+.venv/
+venv/
+ENV/
+
+# ===== NoneBot / NapCat =====
+data/*.db
+data/*.sqlite
+*.log
+
+# ===== IDE =====
+.vscode/
+.idea/
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
