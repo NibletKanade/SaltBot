@@ -156,6 +156,7 @@ setyc = on_command("setyc", priority=5)
 showall = on_command("showall", priority=10)
 show = on_command("show", priority=10)
 refreshcards_cmd = on_command("refreshcards", priority=5)
+help_cmd = on_command("help", priority=10)
 
 # helper to parse @ as in previous code
 def extract_at_user(event: GroupMessageEvent) -> Optional[int]:
@@ -196,7 +197,7 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     text = args.extract_plain_text().strip()
     val = await _parse_value(text)
     if val is None:
-        await setpts.finish("用法：/setpts @user 123")
+        await setpts.finish("用法：#setpts @user 123")
     add_member(event.group_id, user_id)
     set_field(event.group_id, user_id, "pts", val)
     recompute_ranks(event.group_id)
@@ -210,7 +211,7 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     text = args.extract_plain_text().strip()
     val = await _parse_value(text)
     if val is None:
-        await setlibido.finish("用法：/setlibido @user 123")
+        await setlibido.finish("用法：#setlibido @user 123")
     add_member(event.group_id, user_id)
     set_field(event.group_id, user_id, "libido", val)
     await refresh_cardname(bot, event.group_id)
@@ -223,7 +224,7 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     text = args.extract_plain_text().strip()
     val = await _parse_value(text)
     if val is None:
-        await setrc.finish("用法：/setrc @user 1")
+        await setrc.finish("用法：#setrc @user 1")
     add_member(event.group_id, user_id)
     set_field(event.group_id, user_id, "rc", val)
     await refresh_cardname(bot, event.group_id)
@@ -236,7 +237,7 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     text = args.extract_plain_text().strip()
     val = await _parse_value(text)
     if val is None:
-        await setyc.finish("用法：/setyc @user 1")
+        await setyc.finish("用法：#setyc @user 1")
     add_member(event.group_id, user_id)
     set_field(event.group_id, user_id, "yc", val)
     await refresh_cardname(bot, event.group_id)
@@ -278,7 +279,7 @@ async def _(event: MessageEvent):
 async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     # 取 at 的用户
     if not event.message:
-        await setcard.finish("用法：/改名 @某人 新昵称")
+        await setcard.finish("用法：#改名 @某人 新昵称")
 
     at = next((seg for seg in event.message if seg.type == "at"), None)
     if not at:
@@ -299,3 +300,20 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     await setcard.finish(
         MessageSegment.at(user_id) + f" 的群昵称已修改为：{nickname}"
     )
+
+@help_cmd.handle()
+async def _(bot: Bot, event: GroupMessageEvent):
+    msg = (
+        "功能列表：\n"
+        "#register @user — 注册用户（不带 @ 则注册自己）\n"
+        "#unregister @user — 注销用户（不带 @ 则注销自己）\n"
+        "#setpts @user 123 — 设置 Pts\n"
+        "#setlibido @user 5 — 设置 Libido\n"
+        "#setrc @user 1 — 设置红牌（RC）\n"
+        "#setyc @user 2 — 设置黄牌（YC）\n"
+        "#show @user — 显示特定群友的数据（不带 @ 则显示自己）\n"
+        "#showall — 列出本群所有已注册群友的数据\n"
+        "#refreshcards — 手动刷新所有注册成员的群名片\n"
+        "#help — 显示本帮助信息\n"
+    )
+    await help_cmd.finish(msg)
