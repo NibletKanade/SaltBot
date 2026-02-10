@@ -102,6 +102,20 @@ def recompute_ranks(group_id: int) -> None:
 # strip existing bracket suffix like 'Name[...']'
 _bracket_re = re.compile(r"\s*\[.*\]$")
 
+async def get_display_name(bot: Bot, group_id: int, user_id: int) -> str:
+    """返回用户的群名片或昵称，并去掉尾部方括号内的统计后缀；若获取失败返回 qq 号字符串。"""
+    try:
+        info = await bot.get_group_member_info(group_id=group_id, user_id=user_id, no_cache=True)
+        if isinstance(info, dict):
+            base = info.get("card") or info.get("nickname") or ""
+        else:
+            base = ""
+    except Exception:
+        base = ""
+    base = (base or "").strip()
+    base = _bracket_re.sub("", base).strip()
+    return base if base else str(user_id)
+
 async def refresh_cardname(bot: Bot, group_id: int) -> None:
     """更新指定群的所有已注册成员的群名片。"""
     rows = get_all_members(group_id)
@@ -158,7 +172,8 @@ async def _(bot: Bot, event: GroupMessageEvent):
     add_member(event.group_id, user_id)
     recompute_ranks(event.group_id)
     await refresh_cardname(bot, event.group_id)
-    await register.finish(f"用户 {user_id} 已注册")
+    display = await get_display_name(bot, event.group_id, user_id)
+    await register.finish(f"{display} 已注册")
 
 @unregister.handle()
 async def _(bot: Bot, event: GroupMessageEvent):
@@ -166,7 +181,8 @@ async def _(bot: Bot, event: GroupMessageEvent):
     remove_member(event.group_id, user_id)
     recompute_ranks(event.group_id)
     await refresh_cardname(bot, event.group_id)
-    await unregister.finish(f"用户 {user_id} 已从注册名单移除")
+    display = await get_display_name(bot, event.group_id, user_id)
+    await unregister.finish(f"{display} 已从注册名单移除")
 
 async def _parse_value(args_text: str) -> Optional[int]:
     try:
@@ -185,7 +201,8 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     set_field(event.group_id, user_id, "pts", val)
     recompute_ranks(event.group_id)
     await refresh_cardname(bot, event.group_id)
-    await setpts.finish(f"已将用户 {user_id} 的 Pts 设置为 {val}")
+    display = await get_display_name(bot, event.group_id, user_id)
+    await setpts.finish(f"已将 {display} 的 Pts 设置为 {val}")
 
 @setlibido.handle()
 async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
@@ -197,7 +214,8 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     add_member(event.group_id, user_id)
     set_field(event.group_id, user_id, "libido", val)
     await refresh_cardname(bot, event.group_id)
-    await setlibido.finish(f"已将用户 {user_id} 的 Libido 设置为 {val}")
+    display = await get_display_name(bot, event.group_id, user_id)
+    await setlibido.finish(f"已将 {display} 的 Libido 设置为 {val}")
 
 @setrc.handle()
 async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
@@ -209,7 +227,8 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     add_member(event.group_id, user_id)
     set_field(event.group_id, user_id, "rc", val)
     await refresh_cardname(bot, event.group_id)
-    await setrc.finish(f"已将用户 {user_id} 的 RC 设置为 {val}")
+    display = await get_display_name(bot, event.group_id, user_id)
+    await setrc.finish(f"已将 {display} 的 RC 设置为 {val}")
 
 @setyc.handle()
 async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
@@ -221,25 +240,28 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     add_member(event.group_id, user_id)
     set_field(event.group_id, user_id, "yc", val)
     await refresh_cardname(bot, event.group_id)
-    await setyc.finish(f"已将用户 {user_id} 的 YC 设置为 {val}")
+    display = await get_display_name(bot, event.group_id, user_id)
+    await setyc.finish(f"已将 {display} 的 YC 设置为 {val}")
 
 @showall.handle()
-async def _(event: GroupMessageEvent):
+async def _(bot: Bot, event: GroupMessageEvent):
     rows = get_all_members(event.group_id)
     if not rows:
         await showall.finish("没有注册的群友")
     lines = []
     for r in rows:
-        lines.append(f"{r['user_id']}: Pts={r['pts']} RANK={r['rank']} Libido={r['libido']} RC={r['rc']} YC={r['yc']}")
+        display = await get_display_name(bot, event.group_id, r['user_id'])
+        lines.append(f"{display}: Pts={r['pts']} RANK={r['rank']} Libido={r['libido']} RC={r['rc']} YC={r['yc']}")
     await showall.finish("\n".join(lines))
 
 @show.handle()
-async def _(event: GroupMessageEvent):
+async def _(bot: Bot, event: GroupMessageEvent):
     user_id = extract_at_user(event) or event.user_id
     r = get_member(event.group_id, user_id)
     if not r:
         await show.finish("该用户未注册")
-    await show.finish(f"{user_id}: Pts={r['pts']} RANK={r['rank']} Libido={r['libido']} RC={r['rc']} YC={r['yc']}")
+    display = await get_display_name(bot, event.group_id, user_id)
+    await show.finish(f"{display}: Pts={r['pts']} RANK={r['rank']} Libido={r['libido']} RC={r['rc']} YC={r['yc']}")
 
 @refreshcards_cmd.handle()
 async def _(bot: Bot, event: GroupMessageEvent):
