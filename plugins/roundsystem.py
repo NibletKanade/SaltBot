@@ -11,6 +11,18 @@ from typing import Optional, List, Tuple
 
 from ._common import get_conn, init_db, add_member, get_member, set_field, add_field, recompute_ranks, refresh_cardname, get_display_name
 
+# 辅助函数：从消息中提取 @ 提及的用户 ID
+def extract_at_user(event) -> Optional[int]:
+    """从群消息事件中提取第一个 @ 提及的用户 QQ 号"""
+    if not event.message:
+        return None
+    for seg in event.message:
+        if seg.type == "at":
+            qq = seg.data.get("qq")
+            if qq:
+                return int(qq)
+    return None
+
 # create tables for rounds, matches, predictions, settlements
 def init_round_db():
     conn = get_conn()
@@ -443,25 +455,40 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     except Exception:
         await predict.send("用法：#predict <序号> [@user] X-Y（序号应为数字）")
         return
+    # 优先从消息中提取 @ 提及
+    mention_uid = extract_at_user(event)
     target_user = event.user_id
     score_token = None
-    if len(parts) == 2:
+    if mention_uid:
+        # 有 @ 提及，需要管理员权限才能为他人操作
+        if mention_uid != event.user_id and not is_admin(event):
+            await predict.send("只有管理员可以为他人提交预测")
+            return
+        target_user = mention_uid
+        # 从 parts 中寻找第一个比分 token
+        for tok in parts[1:]:
+            if re.search(r"^\d+-\d+$", tok):
+                score_token = tok
+                break
+    elif len(parts) == 2:
         score_token = parts[1]
     elif len(parts) >= 3:
         # parts[1] 可能是用户或 score
         if re.search(r"^\d+-\d+$", parts[1]):
             score_token = parts[1]
         else:
-            # 视为用户
+            # 视为用户 ID（纯数字写法，仅管理员可用）
             m = re.search(r"(\d+)", parts[1])
-            if not m:
-                await predict.send("无法解析用户 ID，请填写数字 QQ 号或 @ 提及，或省略该参数以表示自己")
-                return
-            if not is_admin(event):
-                await predict.send("只有管理员可以为他人提交预测")
-                return
-            target_user = int(m.group(1))
-            score_token = parts[2] if len(parts) >= 3 else None
+            if m:
+                if not is_admin(event):
+                    await predict.send("只有管理员可以为他人提交预测")
+                    return
+                target_user = int(m.group(1))
+                score_token = parts[2] if len(parts) >= 3 else None
+            else:
+                score_token = parts[1] if len(parts) >= 2 else None
+    else:
+        score_token = parts[1] if len(parts) >= 2 else None
     if not score_token or not re.search(r"^(\d+)-(\d+)$", score_token):
         await predict.send("用法：#predict <序号> [@user] X-Y（示例：#predict 2 1-0 或 #predict 2 @12345678 1-0）")
         return
@@ -485,7 +512,11 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     if target_user == event.user_id:
         await predict.send(f"已记录预测：比赛 {idx} 预计 {ph}-{pa}")
     else:
-        await predict.send(f"已为用户 {target_user} 记录预测：比赛 {idx} 预计 {ph}-{pa}")
+        try:
+            display = await get_display_name(bot, event.group_id, target_user)
+        except Exception:
+            display = str(target_user)
+        await predict.send(f"已为 {display}({target_user}) 记录预测：比赛 {idx} 预计 {ph}-{pa}")
     return
 
 @mypreds.handle()
@@ -496,14 +527,16 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
         await mypreds.send("当前无活动回合")
         return
     text = args.extract_plain_text().strip()
+    # 优先从消息中提取 @ 提及
+    mention_uid = extract_at_user(event)
     target_user = event.user_id
-    if text:
+    if mention_uid:
+        target_user = mention_uid
+    elif text:
         # 尝试解析 user id（任何人都可查看他人）
         m = re.search(r"(\d+)", text)
-        if not m:
-            await mypreds.send("无法解析用户 ID，请填写数字 QQ 号或 @ 提及，或省略该参数以查看自己")
-            return
-        target_user = int(m.group(1))
+        if m:
+            target_user = int(m.group(1))
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT m.idx, m.home, m.away, p.pred_home, p.pred_away, p.awarded_points FROM matches m LEFT JOIN predictions p ON m.id = p.match_id AND p.user_id = ? WHERE m.round_id = ? ORDER BY m.idx ASC", (target_user, active['id']))
@@ -517,7 +550,11 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     if target_user == event.user_id:
         await mypreds.send("你的预测：\n" + "\n".join(lines))
     else:
-        await mypreds.send(f"用户 {target_user} 的预测：\n" + "\n".join(lines))
+        try:
+            display = await get_display_name(bot, event.group_id, target_user)
+        except Exception:
+            display = str(target_user)
+        await mypreds.send(f"{display}({target_user}) 的预测：\n" + "\n".join(lines))
     return
 
 # 在 mypreds 之后插入 matchpreds handler
@@ -666,22 +703,48 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
         await setpred.send("当前无活动回合")
         return
     text = args.extract_plain_text().strip()
-    try:
-        parts = text.split()
-        idx = int(parts[0])
-        user_s = parts[1]
-        score = parts[2]
-        ph, pa = score.split('-')
-        ph = int(ph); pa = int(pa)
-    except Exception:
-        await setpred.send("用法：#setpred <序号> <user_id|@qq> X-Y")
-        return
-    # parse user id from user_s
-    m = re.search(r"(\d+)", user_s)
-    if not m:
-        await setpred.send("无法解析用户 ID，请填写数字 QQ 号或 @ 提及")
-        return
-    user_id = int(m.group(1))
+    parts = text.split()
+    # 优先从消息中提取 @ 提及
+    mention_uid = extract_at_user(event)
+    user_id = None
+    idx = None
+    ph = None
+    pa = None
+    if mention_uid:
+        # 有 @ 提及，格式应为：#setpred <序号> @user X-Y
+        # parts 中应该只有 <序号> 和 X-Y（@ 段被 extract_plain_text 去掉）
+        if len(parts) < 2:
+            await setpred.send("用法：#setpred <序号> @user X-Y")
+            return
+        try:
+            idx = int(parts[0])
+            score = parts[1]
+            ph, pa = score.split('-')
+            ph = int(ph); pa = int(pa)
+        except Exception:
+            await setpred.send("用法：#setpred <序号> @user X-Y")
+            return
+        user_id = mention_uid
+    else:
+        # 无 @ 提及，格式应为：#setpred <序号> <user_id> X-Y
+        if len(parts) < 3:
+            await setpred.send("用法：#setpred <序号> <user_id|@qq> X-Y")
+            return
+        try:
+            idx = int(parts[0])
+            user_s = parts[1]
+            score = parts[2]
+            ph, pa = score.split('-')
+            ph = int(ph); pa = int(pa)
+        except Exception:
+            await setpred.send("用法：#setpred <序号> <user_id|@qq> X-Y")
+            return
+        # parse user id from user_s
+        m = re.search(r"(\d+)", user_s)
+        if not m:
+            await setpred.send("无法解析用户 ID，请填写数字 QQ 号或 @ 提及")
+            return
+        user_id = int(m.group(1))
     round_id = active['id']
     mrec = get_match(round_id, idx)
     if not mrec:
@@ -735,25 +798,39 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     if not text:
         await predicts.send("用法：#predicts [@user] X-Y [X-Y ...] ，按当前回合比赛顺序对应每场预测，省去序号")
         return
+    # 宽松分隔
     tokens = [t.strip() for t in re.split(r'[,;\s]+', text) if t.strip()]
     if not tokens:
         await predicts.send("未识别到有效输入")
         return
+    # 优先从消息中提取 @ 提及
+    mention_uid = extract_at_user(event)
     target_user = event.user_id
-    # 如果第一个 token 看起来是用户 id，则当作目标用户（仅管理员可用）
-    first = tokens[0]
-    scores_tokens = tokens
-    m_user = re.match(r'^(?:@)?(\d+)$', first)
-    if m_user:
-        # first token 是用户 id
-        if not is_admin(event):
+    scores_tokens = tokens[:]
+    if mention_uid:
+        # 有 @ 提及，需要管理员权限才能为他人操作
+        if mention_uid != event.user_id and not is_admin(event):
             await predicts.send("只有管理员可以为他人提交批量预测")
             return
-        target_user = int(m_user.group(1))
-        scores_tokens = tokens[1:]
-        if not scores_tokens:
-            await predicts.send("请在用户后面提供比分列表，例如：#predicts @12345678 1-0 2-1")
-            return
+        target_user = mention_uid
+        # 不需要从 tokens 中去除 @xxx，因为 extract_plain_text 已经去掉了 @ 段
+        # 但如果第一个 token 恰好是纯数字（与提及重复），则跳过
+        if tokens and re.match(r'^@?\d+$', tokens[0]):
+            scores_tokens = tokens[1:]
+    else:
+        # 兼容纯数字 id 写法（例如：#predicts 12345678 1-0 ...）
+        first = tokens[0]
+        m_user = re.match(r'^(?:@)?(\d+)$', first)
+        if m_user:
+            # first token 是用户 id
+            if not is_admin(event):
+                await predicts.send("只有管理员可以为他人提交批量预测")
+                return
+            target_user = int(m_user.group(1))
+            scores_tokens = tokens[1:]
+            if not scores_tokens:
+                await predicts.send("请在用户后面提供比分列表，例如：#predicts @12345678 1-0 2-1")
+                return
     # 从 scores_tokens 中提取所有 score 值
     scores = []
     for t in scores_tokens:
@@ -772,6 +849,7 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     for i in range(n):
         m = matches[i]
         ph, pa = scores[i]
+        # 仅对目标用户写入预测
         upsert_prediction(event.group_id, m['id'], target_user, ph, pa)
         add_member(event.group_id, target_user)
         recorded.append(f"{m['idx']}: {ph}-{pa}")
@@ -781,5 +859,9 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     if target_user == event.user_id:
         await predicts.send("已记录预测：\n" + "\n".join(recorded))
     else:
-        await predicts.send(f"已为用户 {target_user} 记录预测：\n" + "\n".join(recorded))
+        try:
+            display = await get_display_name(bot, event.group_id, target_user)
+        except Exception:
+            display = str(target_user)
+        await predicts.send(f"已为 {display}({target_user}) 记录预测（不会修改你的预测）：\n" + "\n".join(recorded))
     return
