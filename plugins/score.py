@@ -221,7 +221,8 @@ async def refresh_cardname(bot: Bot, group_id: int) -> tuple:
             r_rank_str = f"({round_rank}{medal})"
         else:
             r_rank_str = "(0)"
-        new_card = f"{base}[S-pts{season_pts}{s_rank_str} R-pts{round_pts}{r_rank_str} Libido{libido} RC{rc} YC{yc}]"
+        # 不再把赛季分数与排名写入群名片，仅保留回合分数（含奖牌）与其他字段
+        new_card = f"{base}[R-pts{round_pts}{r_rank_str} Libido{libido} RC{rc} YC{yc}]"
         try:
             await bot.set_group_card(group_id=group_id, user_id=user_id, card=new_card)
             success += 1
@@ -248,6 +249,9 @@ showall = on_command("showall", priority=10)
 show = on_command("show", priority=10)
 refreshcards_cmd = on_command("refreshcards", priority=5)
 help_cmd = on_command("help", priority=10)
+# 新增排行榜命令
+seasonboard = on_command("seasonboard", priority=10)
+roundboard = on_command("roundboard", priority=10)
 
 # helper to parse @ as in previous code
 def extract_at_user(event: GroupMessageEvent) -> Optional[int]:
@@ -555,8 +559,49 @@ async def _(bot: Bot, event: GroupMessageEvent):
         "#addyc @user [数量] — 增加 YC，默认 1\n"
         "#show @user — 显示特定群友的数据（不带 @ 则显示自己）\n"
         "#showall — 列出本群所有已注册群友的数据\n"
+        "#seasonboard — 显示赛季积分榜\n"
+        "#roundboard — 显示回合积分榜\n"
         "#refreshcards — 手动刷新所有注册成员的群名片\n"
         "#help — 显示本帮助信息\n"
     )
     await help_cmd.send(msg)
+    return
+
+@seasonboard.handle()
+async def _(bot: Bot, event: GroupMessageEvent):
+    # 按照赛季分数排序显示
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id, season_pts, season_rank FROM members WHERE group_id = ? ORDER BY season_rank ASC", (event.group_id,))
+    rows = cur.fetchall()
+    conn.close()
+    if not rows:
+        await seasonboard.send("当前没有注册的用户")
+        return
+    lines = []
+    for r in rows:
+        display = await get_display_name(bot, event.group_id, r['user_id'])
+        lines.append(f"{display}: S-pts={r['season_pts']} (Rank {r['season_rank']})")
+    await seasonboard.send("赛季积分榜：\n" + "\n".join(lines))
+    return
+
+@roundboard.handle()
+async def _(bot: Bot, event: GroupMessageEvent):
+    # 确保排名和奖牌为最新
+    recompute_ranks(event.group_id)
+    medal_map = _compute_round_medal_map(event.group_id)
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id, round_pts, round_rank FROM members WHERE group_id = ? ORDER BY round_rank ASC", (event.group_id,))
+    rows = cur.fetchall()
+    conn.close()
+    if not rows:
+        await roundboard.send("当前没有注册的用户")
+        return
+    lines = []
+    for r in rows:
+        display = await get_display_name(bot, event.group_id, r['user_id'])
+        medal = medal_map.get(r['user_id'], '')
+        lines.append(f"{display}: R-pts={r['round_pts']} (Rank {r['round_rank']}) {medal}")
+    await roundboard.send("回合积分榜：\n" + "\n".join(lines))
     return
