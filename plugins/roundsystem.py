@@ -611,7 +611,7 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
         ph = r['pred_home'] if r['pred_home'] is not None else '-'
         pa = r['pred_away'] if r['pred_away'] is not None else '-'
         pts = r['awarded_points'] if r['awarded_points'] is not None else 0
-        lines.append(f"{name}({uid}): {ph}-{pa} 已得分 {pts}")
+        lines.append(f"{name}: {ph}-{pa} 已得分 {pts}")
     await matchpreds.send(f"比赛 {idx}: {m['home']} vs {m['away']} 的预测：\n" + "\n".join(lines))
     return
 
