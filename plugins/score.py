@@ -17,7 +17,7 @@ from ._common import (
     _bracket_re,
     get_display_name,
     _compute_round_medal_map,
-    refresh_cardname
+    refresh_cardname,
 )
 
 ping = on_command("ping", priority=5)
@@ -415,7 +415,7 @@ async def _(bot: Bot, event: GroupMessageEvent):
     medal_map = _compute_round_medal_map(event.group_id)
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT user_id, round_pts, round_rank FROM members WHERE group_id = ? ORDER BY round_rank ASC", (event.group_id,))
+    cur.execute("SELECT user_id, round_pts, round_rank, round_pred_pts FROM members WHERE group_id = ? ORDER BY round_rank ASC", (event.group_id,))
     rows = cur.fetchall()
     conn.close()
     if not rows:
@@ -425,7 +425,12 @@ async def _(bot: Bot, event: GroupMessageEvent):
     for r in rows:
         display = await get_display_name(bot, event.group_id, r['user_id'])
         medal = medal_map.get(r['user_id'], '')
-        lines.append(f"{display}: R-pts={r['round_pts']} (Rank {r['round_rank']}) {medal}")
+        round_pts = r['round_pts'] or 0
+        pred_total = r['round_pred_pts'] or 0
+        tool_pts = round_pts - pred_total
+        lines.append(
+            f"{display}: R-pts={round_pts} (Rank {r['round_rank']}) {medal} 预测={pred_total} 道具={tool_pts}"
+        )
     await roundboard.send("回合积分榜：\n" + "\n".join(lines))
     return
 

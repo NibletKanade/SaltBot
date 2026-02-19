@@ -30,6 +30,7 @@ def init_db():
         libido INTEGER DEFAULT 0,
         rc INTEGER DEFAULT 0,
         yc INTEGER DEFAULT 0,
+        round_pred_pts INTEGER DEFAULT 0,
         PRIMARY KEY (group_id, user_id)
     )
     """)
@@ -44,7 +45,8 @@ def init_db():
         'round_rank': 'INTEGER DEFAULT 0',
         'libido': 'INTEGER DEFAULT 0',
         'rc': 'INTEGER DEFAULT 0',
-        'yc': 'INTEGER DEFAULT 0'
+        'yc': 'INTEGER DEFAULT 0',
+        'round_pred_pts': 'INTEGER DEFAULT 0',
     }
     for col, col_def in needed.items():
         if col not in existing:
@@ -72,7 +74,7 @@ def remove_member(group_id: int, user_id: int) -> None:
     conn.close()
 
 def set_field(group_id: int, user_id: int, field: str, value: int, conn: sqlite3.Connection = None) -> None:
-    allowed = {"season_pts", "round_pts", "libido", "rc", "yc"}
+    allowed = {"season_pts", "round_pts", "libido", "rc", "yc", "round_pred_pts"}
     if field not in allowed:
         raise ValueError("invalid field")
     close_conn = False
@@ -87,7 +89,7 @@ def set_field(group_id: int, user_id: int, field: str, value: int, conn: sqlite3
         conn.close()
 
 def add_field(group_id: int, user_id: int, field: str, delta: int, conn: sqlite3.Connection = None) -> None:
-    allowed = {"season_pts", "round_pts", "libido", "rc", "yc"}
+    allowed = {"season_pts", "round_pts", "libido", "rc", "yc", "round_pred_pts"}
     if field not in allowed:
         raise ValueError("invalid field")
     close_conn = False
@@ -229,7 +231,7 @@ from typing import Optional as _Opt
 async def modify_and_refresh(bot: Bot, group_id: int, user_id: int, field: str, *, add: _Opt[int] = None, set: _Opt[int] = None) -> Tuple[Optional[sqlite3.Row], int, int]:
     if add is None and set is None:
         raise ValueError("either add or set must be provided")
-    if field not in {"season_pts", "round_pts", "libido", "rc", "yc"}:
+    if field not in {"season_pts", "round_pts", "libido", "rc", "yc", "round_pred_pts"}:
         raise ValueError("invalid field")
     if add is not None:
         add_field(group_id, user_id, field, add)

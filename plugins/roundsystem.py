@@ -234,10 +234,12 @@ def set_match_result_db(group_id: int, idx: int, actual_h: int, actual_a: int, s
             adj_actual_h = (actual_h or 0) + (adjust_h or 0)
             adj_actual_a = (actual_a or 0) + (adjust_a or 0)
             points = compare_prediction(adj_actual_h, adj_actual_a, p['pred_home'] or 0, p['pred_away'] or 0)
-            delta = points - (p['awarded_points'] or 0)
+            old_points = p['awarded_points'] or 0
+            delta = points - old_points
             if delta != 0:
-                # use existing connection to avoid sqlite locked errors
+                # 使用同一个连接更新 round_pts 与 round_pred_pts，避免锁问题
                 add_field(group_id, p['user_id'], 'round_pts', delta, conn=conn)
+                add_field(group_id, p['user_id'], 'round_pred_pts', delta, conn=conn)
                 # record settlement
                 cur.execute("INSERT INTO settlements (group_id, round_id, match_id, user_id, points_awarded, reason, ts) VALUES (?, ?, ?, ?, ?, ?, ?)",
                             (group_id, round_id, m['id'], p['user_id'], delta, f"match_{idx}_settle", datetime.utcnow().isoformat()))
@@ -771,6 +773,7 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
         delta = points - prev_awarded
         if delta != 0:
             add_field(event.group_id, user_id, 'round_pts', delta, conn=conn)
+            add_field(event.group_id, user_id, 'round_pred_pts', delta, conn=conn)
             cur.execute("INSERT INTO settlements (group_id, round_id, match_id, user_id, points_awarded, reason, ts) VALUES (?, ?, ?, ?, ?, ?, ?)",
                         (event.group_id, round_id, mrec['id'], user_id, delta, 'admin_setpred', datetime.utcnow().isoformat()))
         cur.execute("UPDATE predictions SET awarded_points = ?, updated_at = ? WHERE match_id = ? AND user_id = ?", (points, now, mrec['id'], user_id))
