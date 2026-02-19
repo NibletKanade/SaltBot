@@ -128,12 +128,24 @@ def compare_prediction(actual_h: int, actual_a: int, pred_h: int, pred_a: int) -
     elif abs(pred_a - actual_a) == 1 and abs(pred_h - actual_h) != 1:
         res += 1
 
-    if pred_a - pred_h == actual_a - actual_h:
+    actual_diff = pred_a - actual_a
+    if actual_diff > 5:
+        actual_diff = 5
+    if actual_diff < -5:
+        actual_diff = -5
+
+    pred_diff = pred_a - pred_h
+    if pred_diff > 5:
+        pred_diff = 5
+    if pred_diff < -5:
+        pred_diff = -5
+
+    if pred_diff == actual_diff:
         res += 2
-    elif (pred_a - pred_h) * (actual_a - actual_h) > 0 and abs((pred_a - pred_h) - (actual_a - actual_h)) <= 2:
+    elif (pred_diff) * (actual_diff) > 0 and abs((pred_diff) - (actual_diff)) <= 2:
         res += 1
 
-    if (pred_a - pred_h) * (actual_a - actual_h) < 0 and abs((pred_a - pred_h) - (actual_a - actual_h)) >= 2 and res > 0:
+    if (pred_diff) * (actual_diff) <= 0 and abs((pred_diff) - (actual_diff)) >= 2 and res > 0:
         res -= 1
 
     return res
