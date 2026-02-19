@@ -361,6 +361,7 @@ async def _(bot: Bot, event: GroupMessageEvent):
         "#predict <序号> [@user] X-Y — 提交/更新单场预测；若指定 @user 需管理员权限（默认提交自己）\n"
         "#predicts [@user] X-Y [X-Y ...] — 批量预测，按回合内比赛顺序对应比分；指定 @user 仅限管理员（默认自己）\n"
         "#mypreds [@user] — 查看自己或指定用户在当前回合的所有预测（任何人可查看他人）\n"
+        "#matchpreds <序号> — 列出所有用户对指定比赛的预测和积分\n"
         "#setmatchresult <序号> X-Y — 管理员：设置比赛赛果并结算该场所有预测\n"
         "#setpred <序号> <user_id|@qq> X-Y — 管理员：为指定用户修改某场预测，若已录赛果则重新结算并更新积分\n"
         "#endround — 管理员：结束回合并按回合名次发放赛季积分（🥇+4, 🥈+2, 🥉+1），同时清零回合分数\n"
@@ -387,6 +388,7 @@ async def _(bot: Bot, event: GroupMessageEvent):
         "#help — 查看完整帮助\n"
         "#predicts [@user] X-Y [X-Y ...] — 批量预测比分（不带 @ 操作自己）\n"
         "#mypreds [@user] — 查看自己或指定用户在当前回合的预测\n"
+        "#matchpreds <序号> — 列出所有用户对指定比赛的预测和积分\n"
     )
     await h_cmd.send(msg)
     return
