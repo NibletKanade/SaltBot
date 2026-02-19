@@ -47,6 +47,9 @@ h_cmd = on_command("h", priority=10)
 seasonboard = on_command("seasonboard", priority=10)
 roundboard = on_command("roundboard", priority=10)
 
+# 当机器人被 @ 时自动回复
+mention_reply = on_command("", priority=1, block=False)
+
 # helper to parse @ as in previous code
 def extract_at_user(event: GroupMessageEvent) -> Optional[int]:
     if not event.message:
@@ -424,4 +427,16 @@ async def _(bot: Bot, event: GroupMessageEvent):
         medal = medal_map.get(r['user_id'], '')
         lines.append(f"{display}: R-pts={r['round_pts']} (Rank {r['round_rank']}) {medal}")
     await roundboard.send("回合积分榜：\n" + "\n".join(lines))
+    return
+
+@mention_reply.handle()
+async def _(bot: Bot, event: GroupMessageEvent):
+    # 仅在消息中包含 @bot 自身时触发
+    bot_qq = int(bot.self_id)
+    if not event.message:
+        return
+    for seg in event.message:
+        if seg.type == "at" and seg.data.get("qq") and int(seg.data["qq"]) == bot_qq:
+            await mention_reply.send("白白是爸爸，盐盐是妈妈！(#^.^#)")
+            break
     return
