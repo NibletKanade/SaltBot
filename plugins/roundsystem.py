@@ -128,7 +128,7 @@ def compare_prediction(actual_h: int, actual_a: int, pred_h: int, pred_a: int) -
     elif abs(pred_a - actual_a) == 1 and abs(pred_h - actual_h) != 1:
         res += 1
 
-    actual_diff = pred_a - actual_a
+    actual_diff = actual_a - actual_h
     if actual_diff > 5:
         actual_diff = 5
     if actual_diff < -5:
