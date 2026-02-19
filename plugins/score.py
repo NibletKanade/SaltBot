@@ -1,4 +1,5 @@
-from nonebot import on_command
+from nonebot import on_command ,on_message
+from nonebot.rule import to_me
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageEvent, MessageSegment
 from nonebot.params import CommandArg
 from typing import Optional, List, Tuple
@@ -48,7 +49,7 @@ seasonboard = on_command("seasonboard", priority=10)
 roundboard = on_command("roundboard", priority=10)
 
 # 当机器人被 @ 时自动回复
-mention_reply = on_command("", priority=1, block=False)
+mention_reply = on_message(rule=to_me(), priority=15)
 
 # helper to parse @ as in previous code
 def extract_at_user(event: GroupMessageEvent) -> Optional[int]:
@@ -435,13 +436,5 @@ async def _(bot: Bot, event: GroupMessageEvent):
     return
 
 @mention_reply.handle()
-async def _(bot: Bot, event: GroupMessageEvent):
-    # 仅在消息中包含 @bot 自身时触发
-    bot_qq = int(bot.self_id)
-    if not event.message:
-        return
-    for seg in event.message:
-        if seg.type == "at" and seg.data.get("qq") and int(seg.data["qq"]) == bot_qq:
-            await mention_reply.send("白白是爸爸，盐盐是妈妈！(#^.^#)")
-            break
-    return
+async def _(event: GroupMessageEvent):
+    await mention_reply.finish("白白是爸爸，盐盐是妈妈！(#^.^#)")
