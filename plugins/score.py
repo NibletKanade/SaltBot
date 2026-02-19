@@ -41,6 +41,8 @@ showall = on_command("showall", priority=10)
 show = on_command("show", priority=10)
 refreshcards_cmd = on_command("refreshcards", priority=5)
 help_cmd = on_command("help", priority=10)
+# 精简帮助命令
+h_cmd = on_command("h", priority=10)
 # 新增排行榜命令
 seasonboard = on_command("seasonboard", priority=10)
 roundboard = on_command("roundboard", priority=10)
@@ -361,6 +363,28 @@ async def _(bot: Bot, event: GroupMessageEvent):
         "#abortround — 管理员：中止回合（不发放奖励）\n"
     )
     await help_cmd.send(msg)
+    return
+
+@h_cmd.handle()
+async def _(bot: Bot, event: GroupMessageEvent):
+    """精简帮助，仅列出常用指令。"""
+    msg = (
+        "常用指令速查：\n"
+        "#register @user — 注册用户（不带 @ 则注册自己）\n"
+        "#addSpts @user [数量] — 增加赛季分数，默认 1\n"
+        "#addRpts @user [数量] — 增加回合分数，默认 1\n"
+        "#addlibido @user [数量] — 增加 Libido，默认 1\n"
+        "#addrc @user [数量] — 增加红牌 RC，默认 1\n"
+        "#addyc @user [数量] — 增加黄牌 YC，默认 1\n"
+        "#showall — 列出本群所有已注册群友的数据\n"
+        "#show @user — 显示特定群友的数据（不带 @ 则显示自己）\n"
+        "#seasonboard — 显示赛季积分榜\n"
+        "#roundboard — 显示回合积分榜\n"
+        "#help — 查看完整帮助\n"
+        "#predicts [@user] X-Y [X-Y ...] — 批量预测比分（不带 @ 操作自己）\n"
+        "#mypreds [@user] — 查看自己或指定用户在当前回合的预测\n"
+    )
+    await h_cmd.send(msg)
     return
 
 @seasonboard.handle()
