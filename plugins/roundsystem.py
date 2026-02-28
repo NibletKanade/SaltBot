@@ -307,7 +307,7 @@ def end_round_db(group_id: int, ended_by: int) -> Tuple[int, int]:
     # medal assignments for ranks
     # first three distinct ranks correspond to medals; award season points: 🥇 +4, 🥈 +2, 🥉 +1
     rank_award = {}
-    awards = [4,2,1]
+    awards = [4, 2, 1]
     for i, rr in enumerate(distinct[:3]):
         rank_award[rr] = awards[i]
     awarded_total = 0
@@ -317,12 +317,14 @@ def end_round_db(group_id: int, ended_by: int) -> Tuple[int, int]:
         if award:
             # use existing connection to avoid sqlite locked issues
             add_field(group_id, r['user_id'], 'season_pts', award, conn=conn)
-            cur.execute("INSERT INTO settlements (group_id, round_id, match_id, user_id, points_awarded, reason, ts) VALUES (?, ?, NULL, ?, ?, ?, ?)",
-                         (group_id, round_id, r['user_id'], award, 'round_award', datetime.utcnow().isoformat()))
+            cur.execute(
+                "INSERT INTO settlements (group_id, round_id, match_id, user_id, points_awarded, reason, ts) VALUES (?, ?, NULL, ?, ?, ?, ?)",
+                (group_id, round_id, r['user_id'], award, 'round_award', datetime.utcnow().isoformat()),
+            )
             awarded_total += award
             awarded_users += 1
-    # 清零所有成员的回合积分，为下一回合做准备
-    cur.execute("UPDATE members SET round_pts = 0 WHERE group_id = ?", (group_id,))
+    # 清零所有成员的回合积分和预测积分缓存，为下一回合做准备
+    cur.execute("UPDATE members SET round_pts = 0, round_pred_pts = 0 WHERE group_id = ?", (group_id,))
     # mark round ended
     cur.execute("UPDATE rounds SET status = 'ended', ended_at = ? WHERE id = ?", (datetime.utcnow().isoformat(), round_id))
     conn.commit()
@@ -560,7 +562,7 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     for r in rows:
         ph = r['pred_home'] if 'pred_home' in r.keys() and r['pred_home'] is not None else '-'
         pa = r['pred_away'] if 'pred_away' in r.keys() and r['pred_away'] is not None else '-'
-        lines.append(f"{r['idx']}: {r['home']} vs {r['away']} 预测 {ph}-{pa} 已得分 {r['awarded_points']}")
+        lines.append(f"{r['idx']}: {r['home']} {ph}-{pa} {r['away']} {r['awarded_points']} pts")
     if target_user == event.user_id:
         await mypreds.send("你的预测：\n" + "\n".join(lines))
     else:
