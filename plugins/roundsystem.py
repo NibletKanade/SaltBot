@@ -106,6 +106,9 @@ setpred = on_command("setpred", priority=5)
 # 新增批量添加与批量预测命令
 addmatches = on_command("addmatches", priority=5)
 predicts = on_command("predicts", priority=10)
+# 新增删除预测命令
+deletepredicts = on_command("deletepredicts", priority=10)
+deleteallpredicts = on_command("deleteallpredicts", priority=10)
 
 # permission helper
 def is_admin(event: GroupMessageEvent) -> bool:
@@ -830,7 +833,7 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     if mention_uid:
         # 有 @ 提及，需要管理员权限才能为他人操作
         if mention_uid != event.user_id and not is_admin(event):
-            await predicts.send("只有管理员可以为他人提交批量预测")
+            await predicts.send("只有管理员可以为他人提交预测")
             return
         target_user = mention_uid
         # 不需要从 tokens 中去除 @xxx，因为 extract_plain_text 已经去掉了 @ 段
@@ -922,4 +925,122 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
         except Exception:
             display = str(target_user)
         await predicts.send(f"已为 {display}({target_user}) 记录预测（不会修改你的预测）：\n" + "\n".join(recorded))
+    return
+
+@deletepredicts.handle()
+async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
+    """删除指定序号的预测：#deletepredicts [@user] <idx> [<idx> ...]
+    每个参数必须为纯数字序号；仅接受 @ 提及 指定他人（管理员可为他人操作）。"""
+    active = get_active_round(event.group_id)
+    if not active:
+        await deletepredicts.send("当前无活动回合")
+        return
+    text = args.extract_plain_text().strip()
+    if not text:
+        await deletepredicts.send("用法：#deletepredicts [@user] <idx> [<idx> ...]（只接受 @ 提及 指定他人，序号必须为纯数字）")
+        return
+    tokens = [t.strip() for t in re.split(r'[,;\s]+', text) if t.strip()]
+    if not tokens:
+        await deletepredicts.send("未识别到有效输入")
+        return
+    # 识别 @ 提及（仅通过真实 at 段）
+    mention_uid = extract_at_user(event)
+    target_user = event.user_id
+    if mention_uid:
+        # 若为他人操作，需管理员权限
+        if mention_uid != event.user_id and not is_admin(event):
+            await deletepredicts.send("只有管理员可以为他人删除预测，请使用 @ 提及 指定用户")
+            return
+        target_user = mention_uid
+    # 不再接受纯数字 user_id 作为指定他人的方式；剩余 tokens 应为序号列表
+    if not tokens:
+        await deletepredicts.send("请在 @user 后提供要删除的序号，例如：#deletepredicts @12345678 1 4 5；或直接用 #deletepredicts 1 4 5 删除自己的预测")
+        return
+    # 所有剩余 tokens 必须为纯数字序号
+    idxs = []
+    for tok in tokens:
+        if not re.match(r'^\d+$', tok):
+            await deletepredicts.send(f"无效序号：{tok}（必须为纯数字）")
+            return
+        idxs.append(int(tok))
+    # 执行删除
+    conn = get_conn()
+    cur = conn.cursor()
+    removed = []
+    notfound = []
+    for idx in idxs:
+        mrec = get_match(active['id'], idx)
+        if not mrec:
+            notfound.append(idx)
+            continue
+        # 查找预测
+        cur.execute("SELECT * FROM predictions WHERE match_id = ? AND user_id = ?", (mrec['id'], target_user))
+        prow = cur.fetchone()
+        if not prow:
+            notfound.append(idx)
+            continue
+        # 如果已有 awarded_points，需要回退 round_pts 和 round_pred_pts
+        aw = prow['awarded_points'] if prow and prow['awarded_points'] is not None else 0
+        if aw != 0:
+            add_field(event.group_id, target_user, 'round_pts', -aw, conn=conn)
+            add_field(event.group_id, target_user, 'round_pred_pts', -aw, conn=conn)
+            cur.execute("INSERT INTO settlements (group_id, round_id, match_id, user_id, points_awarded, reason, ts) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (event.group_id, active['id'], mrec['id'], target_user, -aw, 'admin_deletepred', datetime.utcnow().isoformat()))
+        cur.execute("DELETE FROM predictions WHERE id = ?", (prow['id'],))
+        removed.append(idx)
+    conn.commit()
+    conn.close()
+    # 更新排行并刷新名片
+    recompute_ranks(event.group_id)
+    await refresh_cardname(bot, event.group_id)
+    lines = []
+    if removed:
+        lines.append("已删除预测：" + ", ".join(str(x) for x in removed))
+    if notfound:
+        lines.append("未找到预测或比赛：" + ", ".join(str(x) for x in notfound))
+    await deletepredicts.send("\n".join(lines))
+    return
+
+@deleteallpredicts.handle()
+async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
+    """删除指定用户当前回合的所有预测：#deleteallpredicts 或 #deleteallpredicts @12345678
+    仅接受 @ 提及 指定他人；管理员可为他人操作。"""
+    active = get_active_round(event.group_id)
+    if not active:
+        await deleteallpredicts.send("当前无活动回合")
+        return
+    text = args.extract_plain_text().strip()
+    mention_uid = extract_at_user(event)
+    target_user = event.user_id
+    if mention_uid:
+        if mention_uid != event.user_id and not is_admin(event):
+            await deleteallpredicts.send("只有管理员可以为他人删除所有预测，请使用 @ 提及 指定用户")
+            return
+        target_user = mention_uid
+    conn = get_conn()
+    cur = conn.cursor()
+    # 查找本回合该用户的预测
+    cur.execute("SELECT p.id, p.match_id, p.awarded_points, m.idx FROM predictions p JOIN matches m ON p.match_id = m.id WHERE p.user_id = ? AND m.round_id = ?", (target_user, active['id']))
+    rows = cur.fetchall()
+    if not rows:
+        conn.close()
+        await deleteallpredicts.send("未找到任何预测")
+        return
+    removed_idxs = []
+    total_recovered = 0
+    for r in rows:
+        aw = r['awarded_points'] if r and r['awarded_points'] is not None else 0
+        if aw != 0:
+            add_field(event.group_id, target_user, 'round_pts', -aw, conn=conn)
+            add_field(event.group_id, target_user, 'round_pred_pts', -aw, conn=conn)
+            cur.execute("INSERT INTO settlements (group_id, round_id, match_id, user_id, points_awarded, reason, ts) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (event.group_id, active['id'], r['match_id'], target_user, -aw, 'admin_deletepred', datetime.utcnow().isoformat()))
+            total_recovered += aw
+        cur.execute("DELETE FROM predictions WHERE id = ?", (r['id'],))
+        removed_idxs.append(r['idx'])
+    conn.commit()
+    conn.close()
+    recompute_ranks(event.group_id)
+    await refresh_cardname(bot, event.group_id)
+    await deleteallpredicts.send(f"已删除用户 {target_user} 的预测：{', '.join(str(x) for x in removed_idxs)}；恢复已结算积分共 {total_recovered} 点（如有）")
     return
