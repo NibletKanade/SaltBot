@@ -837,6 +837,58 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
         # 但如果第一个 token 恰好是纯数字（与提及重复），则跳过
         if tokens and re.match(r'^@?\d+$', tokens[0]):
             scores_tokens = tokens[1:]
+    # 新增：检测纯序号-比分-序号-比分的交替模式（严格格式）
+    # 使用 scores_tokens 作为工作数组（已在有 @ 时剔除重复用户 id）
+    alt_ok = False
+    if len(scores_tokens) >= 2 and len(scores_tokens) % 2 == 0:
+        alt_ok = True
+        for i in range(0, len(scores_tokens), 2):
+            if not re.match(r'^\d+$', scores_tokens[i]):
+                alt_ok = False
+                break
+            if not re.match(r'^(\d+)-(\d+)$', scores_tokens[i+1]):
+                alt_ok = False
+                break
+    if alt_ok:
+        # 按指定序号-比分对逐项写入预测，严格交替格式
+        matches_recorded = []
+        errors = []
+        for i in range(0, len(scores_tokens), 2):
+            idx_str = scores_tokens[i]
+            score_str = scores_tokens[i+1]
+            try:
+                idx = int(idx_str)
+                mrec = get_match(active['id'], idx)
+                if not mrec:
+                    errors.append(f"序号 {idx} 未找到")
+                    continue
+                mh, ma = score_str.split('-')
+                ph = int(mh); pa = int(ma)
+            except Exception as e:
+                errors.append(f"解析 {idx_str} {score_str} 失败: {e}")
+                continue
+            upsert_prediction(event.group_id, mrec['id'], target_user, ph, pa)
+            add_member(event.group_id, target_user)
+            matches_recorded.append(f"{mrec['idx']}: {ph}-{pa}")
+        if not matches_recorded and errors:
+            await predicts.send("未记录任何预测：\n" + "\n".join(errors))
+            return
+        resp_lines = []
+        if matches_recorded:
+            resp_lines.append("已记录指定序号预测：")
+            resp_lines.extend(matches_recorded)
+        if errors:
+            resp_lines.append("以下条目未记录：")
+            resp_lines.extend(errors)
+        if target_user == event.user_id:
+            await predicts.send("\n".join(resp_lines))
+        else:
+            try:
+                display = await get_display_name(bot, event.group_id, target_user)
+            except Exception:
+                display = str(target_user)
+            await predicts.send(f"已为 {display}({target_user}) 记录预测（不会修改你的预测）：\n" + "\n".join(resp_lines))
+        return
     # 从 scores_tokens 中提取所有 score 值
     scores = []
     for t in scores_tokens:
