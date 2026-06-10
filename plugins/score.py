@@ -21,6 +21,14 @@ from ._common import (
     refresh_cardname,
 )
 
+# 权限辅助校验
+def is_admin(event: GroupMessageEvent) -> bool:
+    try:
+        role = event.sender.role
+        return role in ("owner", "admin")
+    except Exception:
+        return False
+
 ping = on_command("ping", priority=5)
 # setcard = on_command("改名", priority=5)
 
@@ -47,6 +55,8 @@ h_cmd = on_command("h", priority=10)
 # 新增排行榜命令
 seasonboard = on_command("seasonboard", priority=10)
 roundboard = on_command("roundboard", priority=10)
+# 新增批量设置群成员参数指令
+massmodify = on_command("massmodify", priority=5)
 
 # 当机器人被 @ 时自动回复
 mention_reply = on_message(rule=to_me(), priority=15)
@@ -350,6 +360,7 @@ async def _(bot: Bot, event: GroupMessageEvent):
         "#showall — 列出本群所有已注册群友的数据\n"
         "#seasonboard — 显示赛季积分榜\n"
         "#roundboard — 显示回合积分榜\n"
+        "#massmodify <add|set> <参数名> <数值> — 管理员：批量修改（添加/设置）所有注册群成员对应的值（支持 rpts, spts, libido, rc, yc）\n"
         "#refreshcards — 手动刷新所有注册成员的群名片\n"
         "#help — 显示本帮助信息\n"
         "\n"
@@ -358,9 +369,13 @@ async def _(bot: Bot, event: GroupMessageEvent):
         "#addmatch TeamA vs TeamB — 管理员：为当前回合添加比赛，序号自动分配并返回\n"
         "#addmatches A vs B; C vs D — 管理员：一次性添加多场，支持分号或换行分隔\n"
         "#listmatches — 列出当前回合所有比赛及已录赛果\n"
-        "#predict <序号> [@user] X-Y — 提交/更新单场预测；若指定 @user 需管理员权限（默认提交自己）\n"
-        "#predicts [@user] X-Y [X-Y ...] — 批量预测，按回合内比赛顺序对应比分；指定 @user 仅限管理员（默认自己）\n"
-        "#mypreds [@user] — 查看自己或指定用户在当前回合的所有预测（任何人可查看他人）\n"
+        "#predict <序号> [@user] X-Y — 提交/更新单场预测；指定他人仅限 @ 提及（管理员权限，默认自己）\n"
+        "#predicts [@user] 比分列表 — 批量预测（指定他人仅限 @ 提及，管理员权限）：\n"
+        "  - 顺序模式示例：#predicts 1-0 2-1 0-0（顺延匹配）\n"
+        "  - 交替模式示例：#predicts 1 1-0 4 0-0（针对具体序号比赛预测）\n"
+        "#deletepredicts [@user] <序号> [<序号> ...] — 删除指定序号的预测；指定他人仅限 @ 提及（管理员权限，默认自己）\n"
+        "#deleteallpredicts [@user] — 删除当前回合所有预测；指定他人仅限 @ 提及（管理员权限，默认自己）\n"
+        "#mypreds [@user] — 查看自己或指定用户检测的预测列表（任何人可用，查看他人仅限 @ 提及）\n"
         "#matchpreds <序号> — 列出所有用户对指定比赛的预测和积分\n"
         "#setmatchresult <序号> X-Y — 管理员：设置比赛赛果并结算该场所有预测\n"
         "#setpred <序号> <user_id|@qq> X-Y — 管理员：为指定用户修改某场预测，若已录赛果则重新结算并更新积分\n"
@@ -375,6 +390,7 @@ async def _(bot: Bot, event: GroupMessageEvent):
     """精简帮助，仅列出常用指令。"""
     msg = (
         "常用指令速查：\n"
+        "--- 基础与数据指令 ---\n"
         "#register @user — 注册用户（不带 @ 则注册自己）\n"
         "#addSpts @user [数量] — 增加赛季分数，默认 1\n"
         "#addRpts @user [数量] — 增加回合分数，默认 1\n"
@@ -386,8 +402,10 @@ async def _(bot: Bot, event: GroupMessageEvent):
         "#seasonboard — 显示赛季积分榜\n"
         "#roundboard — 显示回合积分榜\n"
         "#help — 查看完整帮助\n"
-        "#predicts [@user] X-Y [X-Y ...] — 批量预测比分（不带 @ 操作自己）\n"
-        "#mypreds [@user] — 查看自己或指定用户在当前回合的预测\n"
+        "--- 竞猜相关指令 ---\n"
+        "#predicts [@user] 预测内容 — 批量预测（指定他人仅限 @ 提及，支持比分顺序匹配如 1-0 2-1 or 严格交替指定如 1 1-0 4 2-1）\n"
+        "#deletepredicts [@user] 序号列表 — 删除指定的预测序号（指定他人仅限 @ 提及）\n"
+        "#mypreds [@user] — 查看自己或指定用户在当前回合的预测（查看他人仅限 @ 提及）\n"
         "#matchpreds <序号> — 列出所有用户对指定比赛的预测和积分\n"
     )
     await h_cmd.send(msg)
@@ -435,6 +453,74 @@ async def _(bot: Bot, event: GroupMessageEvent):
             f"{display}: R-pts={round_pts} (Rank {r['round_rank']}) {medal} 预测={pred_total} 道具={tool_pts}"
         )
     await roundboard.send("回合积分榜：\n" + "\n".join(lines))
+    return
+
+@massmodify.handle()
+async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
+    """批量给所有注册群成员添加/设置玩家参数
+    用法：#massmodify <add|set> <参数名> <数字>
+    参数名支持：round_pts(缩写rpts), season_pts(缩写spts), libido, rc, yc
+    示例：#massmodify add libido 10 或者 #massmodify set spts 10"""
+    if not is_admin(event):
+        await massmodify.send("只有群主/管理员可以使用批量修改指令")
+        return
+    text = args.extract_plain_text().strip()
+    parts = text.split()
+    if len(parts) < 3:
+        await massmodify.send("用法错误，示例：#massmodify <add|set> <参数名> <数值>\n参数名支持：rpts, spts, libido, rc, yc")
+        return
+    op = parts[0].lower() # add 或 set
+    field_param = parts[1].lower() # 字段缩写或全称
+    val_str = parts[2]
+    # 参数转换字典
+    field_map = {
+        "Rpts": "round_pts",
+        "round_pts": "round_pts",
+        "Spts": "season_pts",
+        "season_pts": "season_pts",
+        "libido": "libido",
+        "rc": "rc",
+        "yc": "yc"
+    }
+    field = field_map.get(field_param)
+    if not field:
+        await massmodify.send(f"不支持的参数名：{field_param}，仅支持：rpts, spts, libido, rc, yc")
+        return
+    if op not in ("add", "set"):
+        await massmodify.send("操作类型只能是 add 或 set")
+        return
+    try:
+        val = int(val_str)
+    except ValueError:
+        await massmodify.send(f"数值格式错误：{val_str}（必须为整数）")
+        return
+    # 获取所有的群成员
+    members = get_all_members(event.group_id)
+    if not members:
+        await massmodify.send("当前本群暂无任何注册的用户，无需修改")
+        return
+    conn = get_conn()
+    for m in members:
+        uid = m['user_id']
+        if op == "add":
+            add_field(event.group_id, uid, field, val, conn=conn)
+        else:
+            set_field(event.group_id, uid, field, val, conn=conn)
+    conn.commit()
+    conn.close()
+    # 重新计算 rank 与刷新名片（仅在完成全部修改后做一次）
+    recompute_ranks(event.group_id)
+    await refresh_cardname(bot, event.group_id)
+    # 提供中文显示名
+    cn_name_map = {
+        "round_pts": "回合分数",
+        "season_pts": "赛季分数",
+        "libido": "Libido",
+        "rc": "红牌",
+        "yc": "黄牌"
+    }
+    action_str = "增加" if op == "add" else "设置为"
+    await massmodify.send(f"批量操作成功！已为全群 {len(members)} 名已注册成员的 【{cn_name_map[field]}】 {action_str} {val}")
     return
 
 @mention_reply.handle()
