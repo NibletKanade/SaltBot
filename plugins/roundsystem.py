@@ -688,10 +688,13 @@ async def _(bot: Bot, event: GroupMessageEvent):
         return
     conn = get_conn()
     cur = conn.cursor()
+    # 将本群所有成员的回合积分和预测积分缓存一并清零，避免影响后续回合
+    cur.execute("UPDATE members SET round_pts = 0, round_pred_pts = 0 WHERE group_id = ?", (event.group_id,))
+    # 标记本回合为中止状态
     cur.execute("UPDATE rounds SET status = 'aborted', ended_at = ? WHERE id = ?", (datetime.utcnow().isoformat(), active['id']))
     conn.commit()
     conn.close()
-    await abortround.send("回合已中止，不会发放奖励")
+    await abortround.send("回合已中止，回合积分和预测积分已清零，不会发放奖励")
     return
 
 @exportsettlements.handle()
