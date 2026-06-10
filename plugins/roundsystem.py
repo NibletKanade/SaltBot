@@ -837,20 +837,6 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
         # 但如果第一个 token 恰好是纯数字（与提及重复），则跳过
         if tokens and re.match(r'^@?\d+$', tokens[0]):
             scores_tokens = tokens[1:]
-    else:
-        # 兼容纯数字 id 写法（例如：#predicts 12345678 1-0 ...）
-        first = tokens[0]
-        m_user = re.match(r'^(?:@)?(\d+)$', first)
-        if m_user:
-            # first token 是用户 id
-            if not is_admin(event):
-                await predicts.send("只有管理员可以为他人提交批量预测")
-                return
-            target_user = int(m_user.group(1))
-            scores_tokens = tokens[1:]
-            if not scores_tokens:
-                await predicts.send("请在用户后面提供比分列表，例如：#predicts @12345678 1-0 2-1")
-                return
     # 从 scores_tokens 中提取所有 score 值
     scores = []
     for t in scores_tokens:
