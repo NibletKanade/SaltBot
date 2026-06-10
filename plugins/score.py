@@ -390,7 +390,6 @@ async def _(bot: Bot, event: GroupMessageEvent):
     """精简帮助，仅列出常用指令。"""
     msg = (
         "常用指令速查：\n"
-        "--- 基础与数据指令 ---\n"
         "#register @user — 注册用户（不带 @ 则注册自己）\n"
         "#addSpts @user [数量] — 增加赛季分数，默认 1\n"
         "#addRpts @user [数量] — 增加回合分数，默认 1\n"
@@ -402,7 +401,6 @@ async def _(bot: Bot, event: GroupMessageEvent):
         "#seasonboard — 显示赛季积分榜\n"
         "#roundboard — 显示回合积分榜\n"
         "#help — 查看完整帮助\n"
-        "--- 竞猜相关指令 ---\n"
         "#predicts [@user] 预测内容 — 批量预测（指定他人仅限 @ 提及，支持比分顺序匹配如 1-0 2-1 or 严格交替指定如 1 1-0 4 2-1）\n"
         "#deletepredicts [@user] 序号列表 — 删除指定的预测序号（指定他人仅限 @ 提及）\n"
         "#mypreds [@user] — 查看自己或指定用户在当前回合的预测（查看他人仅限 @ 提及）\n"
