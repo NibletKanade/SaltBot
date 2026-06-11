@@ -947,15 +947,24 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
                 display = str(target_user)
             await predicts.send(f"已为 {display}({target_user}) 记录预测（不会修改你的预测）：\n" + "\n".join(resp_lines))
         return
-    # 从 scores_tokens 中提取所有 score 值
+
+    # 不是序列交替模式，那么校验是否【全部为严格比分 X-Y 格式】
+    all_scores_ok = True
+    for t in scores_tokens:
+        if not re.match(r'^\d+-\d+$', t):
+            all_scores_ok = False
+            break
+
+    if not all_scores_ok:
+        await predicts.send("输入格式非法。参数必须严格为【全比分格式】(如 1-0 2-1) 或【严格序号-比分交替格式】(如 1 1-0 4 2-1)，不予录入")
+        return
+
+    # 此时可以放心地从 scores_tokens 中提取所有 score 值
     scores = []
     for t in scores_tokens:
-        m = re.match(r'^(\d+)-(\d+)$', t)
-        if m:
-            scores.append((int(m.group(1)), int(m.group(2))))
-    if not scores:
-        await predicts.send("未识别到有效的比分，示例：#predicts 1-0 2-1 0-0")
-        return
+        mh, ma = t.split('-')
+        scores.append((int(mh), int(ma)))
+
     matches = list_matches_of_round(active['id'])
     if not matches:
         await predicts.send("当前回合无比赛，无法预测")
