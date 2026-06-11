@@ -567,7 +567,8 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
 
 @mypreds.handle()
 async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
-    """查看自己或指定用户在当前回合的预测。可查看他人：#mypreds 或 #mypreds @12345678"""
+    """查看自己或指定用户在当前回合的预测。可查看他人：#mypreds 或 #mypreds @12345678
+    没有做预测的场次不在此显示"""
     active = get_active_round(event.group_id)
     if not active:
         await mypreds.send("当前无活动回合")
@@ -585,9 +586,20 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
             target_user = int(m.group(1))
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT m.idx, m.home, m.away, p.pred_home, p.pred_away, p.awarded_points FROM matches m LEFT JOIN predictions p ON m.id = p.match_id AND p.user_id = ? WHERE m.round_id = ? ORDER BY m.idx ASC", (target_user, active['id']))
+    # 改为 INNER JOIN 或过滤没有预测的数据：通过 matches 与 predictions 联查，只保留预测记录存在的场次
+    cur.execute("SELECT m.idx, m.home, m.away, p.pred_home, p.pred_away, p.awarded_points FROM matches m JOIN predictions p ON m.id = p.match_id WHERE p.user_id = ? AND m.round_id = ? ORDER BY m.idx ASC", (target_user, active['id']))
     rows = cur.fetchall()
     conn.close()
+    if not rows:
+        if target_user == event.user_id:
+            await mypreds.send("你在此回合暂无任何预测记录")
+        else:
+            try:
+                display = await get_display_name(bot, event.group_id, target_user)
+            except Exception:
+                display = str(target_user)
+            await mypreds.send(f"{display}({target_user}) 在此回合暂无任何预测记录")
+        return
     lines = []
     for r in rows:
         ph = r['pred_home'] if 'pred_home' in r.keys() and r['pred_home'] is not None else '-'
