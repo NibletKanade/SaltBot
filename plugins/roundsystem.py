@@ -293,39 +293,66 @@ def end_round_db(group_id: int, ended_by: int) -> Tuple[int, int]:
     recompute_ranks(group_id)
     conn = get_conn()
     cur = conn.cursor()
-    # get users ordered by round_rank asc
-    cur.execute("SELECT user_id, round_rank FROM members WHERE group_id = ? ORDER BY round_rank ASC", (group_id,))
+    # get users ordered by round_rank asc, and fetch round_pts
+    cur.execute("SELECT user_id, round_pts, round_rank FROM members WHERE group_id = ? ORDER BY round_rank ASC", (group_id,))
     rows = cur.fetchall()
     if not rows:
         cur.execute("UPDATE rounds SET status = 'ended', ended_at = ? WHERE id = ?", (datetime.utcnow().isoformat(), round_id))
         conn.commit()
         conn.close()
         return 0, 0
-    # compute distinct ranks and assign medals similar to _compute_round_medal_map
-    distinct = []
+    # compute distinct ranks
+    distinct_ranks = []
     for r in rows:
         rr = r['round_rank']
-        if rr not in distinct:
-            distinct.append(rr)
-    # medal assignments for ranks
-    # first three distinct ranks correspond to medals; award season points: 🥇 +4, 🥈 +2, 🥉 +1
-    rank_award = {}
-    awards = [4, 2, 1]
-    for i, rr in enumerate(distinct[:3]):
-        rank_award[rr] = awards[i]
-    awarded_total = 0
+        if rr not in distinct_ranks:
+            distinct_ranks.append(rr)
+
+    awarded_total_spts = 0
     awarded_users = 0
+
+    # 规则：每 8 个回合积分转化为 1 赛季积分，余数转化为 libido * 5。
+    # 额外：冠军（round_rank的第一等级）拿 +2 赛季积分，亚军（round_rank的第二等级）拿 +1 赛季积分。
     for r in rows:
-        award = rank_award.get(r['round_rank'])
-        if award:
-            # use existing connection to avoid sqlite locked issues
-            add_field(group_id, r['user_id'], 'season_pts', award, conn=conn)
+        uid = r['user_id']
+        r_pts = r['round_pts'] or 0
+        rr = r['round_rank']
+
+        # 积分转换核心计算
+        season_pts_converted = r_pts // 8
+        rem_pts = r_pts % 8
+        libido_converted = rem_pts * 5
+
+        # 额外加分：确定等级
+        extra_spts = 0
+        if rr == distinct_ranks[0]:
+            extra_spts = 2
+        elif len(distinct_ranks) > 1 and rr == distinct_ranks[1]:
+            extra_spts = 1
+
+        total_spts_to_award = season_pts_converted + extra_spts
+
+        # 执行数据库更新
+        if total_spts_to_award > 0:
+            add_field(group_id, uid, 'season_pts', total_spts_to_award, conn=conn)
+        if libido_converted > 0:
+            add_field(group_id, uid, 'libido', libido_converted, conn=conn)
+
+        # 记录结算说明和明细
+        settle_reason = f"pts_to_season_and_libido_rpts_{r_pts}"
+        if extra_spts > 0:
+            settle_reason += f"_extra_{extra_spts}"
+
+        # 记录到 settlements
+        if total_spts_to_award > 0 or libido_converted > 0:
+            # 记录在 settlements 表中的 points_awarded 为发放的赛季积分
             cur.execute(
                 "INSERT INTO settlements (group_id, round_id, match_id, user_id, points_awarded, reason, ts) VALUES (?, ?, NULL, ?, ?, ?, ?)",
-                (group_id, round_id, r['user_id'], award, 'round_award', datetime.utcnow().isoformat()),
+                (group_id, round_id, uid, total_spts_to_award, settle_reason, datetime.utcnow().isoformat()),
             )
-            awarded_total += award
+            awarded_total_spts += total_spts_to_award
             awarded_users += 1
+
     # 清零所有成员的回合积分和预测积分缓存，为下一回合做准备
     cur.execute("UPDATE members SET round_pts = 0, round_pred_pts = 0 WHERE group_id = ?", (group_id,))
     # mark round ended
@@ -333,7 +360,7 @@ def end_round_db(group_id: int, ended_by: int) -> Tuple[int, int]:
     conn.commit()
     conn.close()
     recompute_ranks(group_id)
-    return awarded_users, awarded_total
+    return awarded_users, awarded_total_spts
 
 # export settlements CSV for current active round
 def export_settlements_csv_db(group_id: int) -> str:
@@ -661,23 +688,43 @@ async def _(bot: Bot, event: GroupMessageEvent):
     awarded_users, awarded_total = end_round_db(event.group_id, event.user_id)
     # batch refresh
     await refresh_cardname(bot, event.group_id)
-    # 查询本回合的 round_award 发放记录，列出冠亚季军
+    # 查询新一轮结算后的获得详情
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT user_id, points_awarded FROM settlements WHERE group_id = ? AND round_id = ? AND reason = 'round_award' ORDER BY points_awarded DESC", (event.group_id, active['id']))
+    cur.execute("SELECT user_id, points_awarded, reason FROM settlements WHERE group_id = ? AND round_id = ? AND reason LIKE 'pts_to_season_and_libido%'", (event.group_id, active['id']))
     rows = cur.fetchall()
     conn.close()
-    medals_map = {4: '🥇', 2: '🥈', 1: '🥉'}
+    
     parts = []
-    for award in [4, 2, 1]:
-        users = [r['user_id'] for r in rows if r['points_awarded'] == award]
-        if users:
-            names = []
-            for uid in users:
-                names.append(await get_display_name(bot, event.group_id, uid))
-            parts.append(f"{medals_map[award]}: {', '.join(names)} (+{award} pts)")
-    medal_text = "\n".join(parts) if parts else "无"
-    await endround.send(f"回合已结束。发放奖励用户数：{awarded_users}，总积分：{awarded_total}\n得分结果：\n{medal_text}")
+    for r in rows:
+        uid = r['user_id']
+        display = await get_display_name(bot, event.group_id, uid)
+        # 从 reason 获取当时的计算明细
+        # pts_to_season_and_libido_rpts_{r_pts}_extra_{extra_spts}
+        pts_match = re.search(r"rpts_(\d+)", r['reason'])
+        rpts_val = int(pts_match.group(1)) if pts_match else 0
+        extra_match = re.search(r"_extra_(\d+)", r['reason'])
+        extra_val = int(extra_match.group(1)) if extra_match else 0
+        
+        converted_pts = rpts_val // 8
+        rem_pts = rpts_val % 8
+        libido_added = rem_pts * 5
+        total_spts = converted_pts + extra_val
+        
+        # 勋章图标展示
+        medal_suffix = ""
+        if extra_val == 2:
+            medal_suffix = "🥇 "
+        elif extra_val == 1:
+            medal_suffix = "🥈 "
+            
+        parts.append(
+            f"{medal_suffix}{display}: 回合分 {rpts_val}pt -> 转化【{converted_pts} S-pts】与【{libido_added} Libido】"
+            f"{f' + 额外排名奖励【{extra_val} S-pts】' if extra_val > 0 else ''}"
+            f" (共获得 {total_spts} 赛季积分)"
+        )
+    result_text = "\n".join(parts) if parts else "没有已注册群友获得积分转换或奖励"
+    await endround.send(f"回合已结束！发放转换奖励用户数：{awarded_users}，共转化并奖励赛季积分：{awarded_total} 点\n【转换与奖励详情】：\n{result_text}")
     return
 
 @abortround.handle()
@@ -836,10 +883,6 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
             await predicts.send("只有管理员可以为他人提交预测")
             return
         target_user = mention_uid
-        # 不需要从 tokens 中去除 @xxx，因为 extract_plain_text 已经去掉了 @ 段
-        # 但如果第一个 token 恰好是纯数字（与提及重复），则跳过
-        if tokens and re.match(r'^@?\d+$', tokens[0]):
-            scores_tokens = tokens[1:]
     # 新增：检测纯序号-比分-序号-比分的交替模式（严格格式）
     # 使用 scores_tokens 作为工作数组（已在有 @ 时剔除重复用户 id）
     alt_ok = False

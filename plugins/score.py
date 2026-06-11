@@ -378,8 +378,8 @@ async def _(bot: Bot, event: GroupMessageEvent):
         "#mypreds [@user] — 查看自己或指定用户检测的预测列表（任何人可用，查看他人仅限 @ 提及）\n"
         "#matchpreds <序号> — 列出所有用户对指定比赛的预测和积分\n"
         "#setmatchresult <序号> X-Y — 管理员：设置比赛赛果并结算该场所有预测\n"
-        "#setpred <序号> <user_id|@qq> X-Y — 管理员：为指定用户修改某场预测，若已录赛果则重新结算并更新积分\n"
-        "#endround — 管理员：结束回合并按回合名次发放赛季积分（🥇+4, 🥈+2, 🥉+1），同时清零回合分数\n"
+        "#setpred <序号> <@user> X-Y — 管理员：修改指定用户的某一预测（仅接受 @ 提及）\n"
+        "#endround — 管理员：结束回合。回合分1:1结算转化：全员每8点回合积分转化为1赛季积分，余数转化为5点libido；冠军等级额外奖2赛季积分，亚军等级额外奖1赛季积分。随后清零回合分。\n"
         "#abortround — 管理员：中止回合（不发放奖励）\n"
     )
     await help_cmd.send(msg)
@@ -472,9 +472,9 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     val_str = parts[2]
     # 参数转换字典
     field_map = {
-        "Rpts": "round_pts",
+        "rpts": "round_pts",
         "round_pts": "round_pts",
-        "Spts": "season_pts",
+        "spts": "season_pts",
         "season_pts": "season_pts",
         "libido": "libido",
         "rc": "rc",
@@ -523,4 +523,4 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
 
 @mention_reply.handle()
 async def _(event: GroupMessageEvent):
-    await mention_reply.finish("白白是爸爸，盐盐是妈妈！(#^.^#)")
+    await mention_reply.finish("白白是爸爸，盐盐是妈妈！(#^.^#)\n 英格兰是冠军！🏆")
