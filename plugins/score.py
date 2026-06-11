@@ -472,9 +472,9 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
     val_str = parts[2]
     # 参数转换字典
     field_map = {
-        "Rpts": "round_pts",
+        "rpts": "round_pts",
         "round_pts": "round_pts",
-        "Spts": "season_pts",
+        "spts": "season_pts",
         "season_pts": "season_pts",
         "libido": "libido",
         "rc": "rc",

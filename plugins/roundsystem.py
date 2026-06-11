@@ -836,10 +836,6 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
             await predicts.send("只有管理员可以为他人提交预测")
             return
         target_user = mention_uid
-        # 不需要从 tokens 中去除 @xxx，因为 extract_plain_text 已经去掉了 @ 段
-        # 但如果第一个 token 恰好是纯数字（与提及重复），则跳过
-        if tokens and re.match(r'^@?\d+$', tokens[0]):
-            scores_tokens = tokens[1:]
     # 新增：检测纯序号-比分-序号-比分的交替模式（严格格式）
     # 使用 scores_tokens 作为工作数组（已在有 @ 时剔除重复用户 id）
     alt_ok = False
