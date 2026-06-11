@@ -1,0 +1,27 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyc
+
+# ===== 虚拟环境 =====
+.env/
+.venv/
+venv/
+ENV/
+
+# ===== NoneBot / NapCat =====
+data/*.db
+data/*.sqlite
+*.log
+*.csv
+
+# ===== IDE =====
+.vscode/
+.idea/
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+plugins/__pycache__/score.cpython-310.pyc
+plugins/__pycache__/score.cpython-310.pyc
