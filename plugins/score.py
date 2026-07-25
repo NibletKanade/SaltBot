@@ -523,4 +523,4 @@ async def _(bot: Bot, event: GroupMessageEvent, args=CommandArg()):
 
 @mention_reply.handle()
 async def _(event: GroupMessageEvent):
-    await mention_reply.finish("白白是爸爸，盐盐是妈妈！(#^.^#)")
+    await mention_reply.finish("白白是爸爸，盐盐是妈妈！(#^.^#)\r英格兰是冠军！🏆")
